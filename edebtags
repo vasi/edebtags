@@ -1,0 +1,252 @@
+#!/usr/bin/ruby -w
+# Copyright (C) 2008 Dave Vasilevsky <dave@vasilevsky.ca>
+# Licensing: Simplified BSD License, see LICENSE file
+
+module CachedURI
+	KeepDays = 30
+	def name; self.class.name; end
+	
+	def cachedb; File.join(ENV['HOME'], '.' + name); end
+	def age(file); (Time.now - File.mtime(file)) / 86400; end
+	
+	def open_handling_gzip(uri, &block)
+		require 'open-uri'
+		open(uri) do |io|
+			return block[io] unless io.respond_to?(:content_type) &&
+				(io.content_type == 'application/x-gzip' ||
+					io.content_encoding.include?('x-gzip'))
+			
+			require 'zlib'
+			begin
+				rdr = Zlib::GzipReader.new(io)
+				return block[rdr]
+			ensure
+				rdr.close
+			end
+		end
+	end
+	
+	def fetch
+		@uri ||= uri
+		open_handling_gzip(@uri) { |io| process(io) }
+	end
+	
+	def initialize(opts = {})
+		@nocache = nil
+		opts.each { |k,v| instance_variable_set("@#{k}", v) }
+		
+		@cachedb ||= cachedb
+		@age ||= KeepDays
+		
+		cache_file = @cachedb + '.db'
+		valid = !@nocache && File.exists?(cache_file) && age(cache_file) < @age
+		if @nocache
+			@data = {}
+		else
+			require 'dbm'
+			File.unlink(cache_file) if !valid && File.exists?(cache_file)
+			@data = DBM.open(@cachedb, 0666)
+		end
+		fetch unless valid
+	end
+end
+
+class Popcon
+	include CachedURI
+	
+	def distro_detect; IO.popen('lsb release -is 2>/dev/null').read; end
+	def uri
+		require 'uri'
+		dir = case (@distro || distro_detect).downcase
+			when 'ubuntu': 'http://popcon.ubuntu.com/'
+			else 'http://popcon.debian.org/' # default to debian
+		end
+		URI.parse(dir) + 'by_vote.gz'
+	end
+	
+	def process(io)
+		# Fields: rank name inst vote old recent no_files (maintainer)
+		io.each do |line|
+			next if line[0] == ?#	# comments
+			break if line[0] == ?-	# totals
+			fields = line.split(' ', 8)
+			name, votes = fields.values_at(1, 3)
+			@data[name] = votes.to_i
+		end
+	end
+
+	def initialize(opts = {}); @distro = nil; super; end
+	def popularity(pkgname); (@data[pkgname] || 0).to_i; end
+end
+
+class Debtags
+	include CachedURI
+	def uri; 'http://debtags.alioth.debian.org/tags/tags-current.gz'; end
+	def process(io)
+		bytag, bypkg = {}, {}
+		io.each do |line|
+			md = /^(\S+):\s*(.*)/.match(line) or next
+			name, tags = md[1], md[2].split(/,\s*/)
+			(bypkg[name] ||= []).concat(tags)
+			tags.each { |t| (bytag[t] ||= []) << name }
+		end
+		[['tag', bytag], ['pkg', bypkg]].each do |n, h|
+			h.each do |k, v|
+				@data["%s,%s" % [n, k]] = h[k].uniq.join(',')
+			end
+		end
+		@data['keys'] = bytag.keys.join(',')
+	end
+	def tags(pkg); (@data["pkg,#{pkg}"] || '').split(','); end
+	def names_for_tag(tag); (@data["tag,#{tag}"] || '').split(','); end
+	def all_tags; @data['keys'].split(','); end
+end
+
+class Package
+	attr_reader :name
+	def initialize(db, name)
+		@db = db
+		@name = name
+	end
+	
+	def popularity; @db.popcon.popularity(name); end
+	def tags; @db.debtags.tags(name); end
+end
+
+class Package::DB
+	def initialize(opts = {})
+		opts.each { |k,v| instance_variable_set("@#{k}", v) }
+	end
+	
+	def debtags; @debtags ||= Debtags.new; end
+	def popcon; @popcon ||= Popcon.new; end
+	
+	def package(name); Package.new(self, name); end
+	def all_tags; debtags.all_tags; end
+	
+	def names_for_tag(tag); debtags.names_for_tag(tag); end
+	def names_for_regex(re)
+		require 'set'
+		names = Set.new
+		debtags.all_tags.grep(Regexp.new(re)).each do |t|
+			names.merge(names_for_tag(t))
+		end
+		return names
+	end
+	
+	def tagged_with(tags, opts = {})
+		fn = opts[:regex] ? :names_for_regex : :names_for_tag
+		names = send(fn, tags.shift)
+		tags.each { |t| names = names & send(fn, t) }
+		names.map { |n| package(n) }
+	end
+end
+
+require 'delegate'
+class AnnotatedPackage < DelegateClass(Package)
+	attr_reader :annotation
+	def initialize(pkg, annotation)
+		super(pkg)
+		@annotation = annotation || ''
+	end
+	
+	class DB < Package::DB
+		class UnparseableLine < Exception; end
+		def package(name, ann = nil)
+			AnnotatedPackage.new(super(name), ann)
+		end
+		
+		def package_from_line(line)
+			md = line.match(/^(\S+)(.*)$/) or return nil
+			return package(*md.captures)
+		end
+		
+		def packages_from_input(*enums)
+			ret = []
+			enums.each do |e|
+				next if e.respond_to?(:tty?) && e.tty?
+				e.each do |line|
+					p = package_from_line(line) or next
+					ret << p
+				end
+			end
+			return ret
+		end
+	end
+end	
+
+module DebianPackageScript
+	def self.unindent(s)
+		ind = s.match(/\A[\t ]*/)[0]
+		s.gsub(Regexp.new("^#{Regexp.escape(ind)}"), '')
+	end
+	
+	def self.db_from_opts(cache_class, usage, opts = {}, &extra_cli_options)
+		require 'optparse'
+		options = {}
+		OptionParser.new do |parser|
+			parser.banner = usage
+			parser.separator ''
+			
+			parser.on('-c', '--cache FILE', 'Cache data in this file') \
+				{ |x| options[:cache] = x }
+			parser.on('-n', '--nocache', "Don't use a cache") \
+				{ |x| options[:nocache] = x }
+			parser.on('-a', '--age DAYS', 'Refresh cache if older than this') \
+				{ |x| options[:age] = x.to_i }				
+			parser.on('-u', '--uri URI', 'Fetch data from this URI') \
+				{ |x| options[:uri] = x }
+				
+			extra_cli_options[parser, options] if extra_cli_options
+		end.parse!
+		
+		cache = cache_class.new(options)
+		db_class = opts[:db_class] || Package::DB
+		return db_class.new(cache_class.name.downcase => cache)
+	end
+	
+	# Popcon annotator
+	def self.do_popcon
+		usage = unindent(<<-USAGE)
+			Usage: epopcon [OPTIONS] PKG1 PKG2 ...
+				   stdin | epopcon [OPTIONS]
+			Sort packages by popularity contest data.
+		USAGE
+		pkgs = db_from_opts(Popcon, usage,
+				:db_class => AnnotatedPackage::DB) do |p, o|
+			p.on('-d', '--distro DISTRO',
+				'Use popularity data from this distro') { |x| o[:distro] = x }
+		end
+		pkgs.packages_from_input(ARGV, STDIN).
+				sort_by { |p| -p.popularity }.each do |p|
+			puts "%6d  %s%s" % [p.popularity, p.name, p.annotation]
+		end
+	end
+	
+	# Ersatz debtags
+	def self.do_edebtags
+		usage = unindent(<<-USAGE)
+			Usage: edebtags [OPTIONS] TAG1 TAG2 ...
+			Get a list of Debian packages corresponding to the given tags.
+		USAGE
+		regex = false
+		pkgs = db_from_opts(Debtags, usage) do |p, o|
+			p.on('-r', '--regex', 'Match tags as regexes') { regex = true }
+		end
+		if ARGV.empty?
+			pkgs.all_tags.sort.each { |n| puts n }
+		else
+			pkgs.tagged_with(ARGV, :regex => regex).map { |p| p.name }.
+				sort.each { |n| puts n }
+		end
+	end
+	
+	def self.run
+		case File.basename($0)
+			when 'edebtags': do_edebtags
+			else do_popcon
+		end
+	end
+end
+
+DebianPackageScript.run if $0 == __FILE__

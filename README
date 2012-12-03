@@ -1,0 +1,85 @@
+edebtags: Ersatz Debian tags and popularity tool
+================================================
+
+Debian has great package metadata, including debtags[1] for categorizing packages, and popcon[2] for measuring their popularity. This data may even be relevant to non-Debian-based systems.
+
+[1] http://wiki.debian.org/Debtags
+[2] http://popcon.debian.org/
+
+
+edebtags: An ersatz Debian tags command-line tool
+-------------------------------------------------
+
+This command lets you access debtags data even on a non-Debian system. Basic usage:
+
+$ edebtags web::browser						# List all web browsers in Debian
+amaya
+arora
+...
+
+$ edebtags protocol::imap interface::x11	# List graphical IMAP clients
+balsa
+claws-mail
+...
+
+$ edebtags									# Show available tags
+accessibility::input
+accessibility::ocr
+...
+
+
+epopcon: An ersatz Debian popularity-contest command-line tool
+--------------------------------------------------------------
+
+This command lets you access popcon data, on a Debian or non-Debian system. Basic usage:
+
+$ epopcon evolution							# Show how many people use evolution
+ 11222  evolution
+
+$ epopcon --distro ubuntu evolution			# Use Ubuntu's data, not Debian's
+ 71306  evolution
+
+$ epopcon cvs git subversion				# Show popularity of each, sorting
+ 16149  git
+ 10643  subversion
+  2535  cvs
+
+You can also annotate and sort any input by popularity:
+
+$ (echo 'mercurial is good'; echo 'git is better') | epopcon
+ 16149  git is better
+  2678  mercurial is my favourite
+
+$ edebtags web::browser | epopcon | head	# Top web browsers
+ 34547  iceweasel
+ 33825  w3m
+ 13968  epiphany-browser
+ 11441  epiphany-extensions
+  8725  lynx-cur
+  6631  chromium
+  6551  chromium-browser
+  5535  konqueror
+  4033  konq-plugins
+  3242  links
+
+$ dpkg -l | grep ^ii | cut -c5- | epopcon	# Most-used packages on my system
+124202  dpkg           1.10.21-1234   The Debian package manager
+124187  debianutils    4.3.2-2        Misc utilities specific to Debian/Fink
+
+
+Notes
+-----
+
+* This tool will act as edebtags if it's named 'edebtags', or as epopcon otherwise
+
+* Requirements
+	- Ruby
+	- Ruby's DBM module (should come with Ruby)
+	- An internet connection, to fetch the data
+
+* Data is cached in ~/.Popcon.db and ~/.Debtags.db
+* BUG: Using --distro won't discard cached data
+
+
+(C) 2008 Dave Vasilevsky <dave@vasilevsky.ca>
+Licensing: Simplified BSD License, see LICENSE file
