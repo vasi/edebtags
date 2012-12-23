@@ -54,12 +54,19 @@ end
 class Popcon
 	include CachedURI
 	
-	def distro_detect; IO.popen('lsb release -is 2>/dev/null').read; end
+	def name; super + '-' + distro; end
+	def distro_detect
+		r = IO.popen('lsb release -is 2>/dev/null') { |f| f.read }
+		$?.success? && r
+	end
+	def distro; @distro ||= (distro_detect || 'debian').downcase; end
+	
 	def uri
 		require 'uri'
-		dir = case (@distro || distro_detect).downcase
+		dir = case distro
 			when 'ubuntu': 'http://popcon.ubuntu.com/'
-			else 'http://popcon.debian.org/' # default to debian
+			when 'debian': 'http://popcon.debian.org/'
+			else raise 'Unknown distro!'
 		end
 		URI.parse(dir) + 'by_vote.gz'
 	end
@@ -75,7 +82,6 @@ class Popcon
 		end
 	end
 
-	def initialize(opts = {}); @distro = nil; super; end
 	def popularity(pkgname); (@data[pkgname] || 0).to_i; end
 end
 
