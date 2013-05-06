@@ -64,8 +64,8 @@ class Popcon
 	def uri
 		require 'uri'
 		dir = case distro
-			when 'ubuntu': 'http://popcon.ubuntu.com/'
-			when 'debian': 'http://popcon.debian.org/'
+			when 'ubuntu' then 'http://popcon.ubuntu.com/'
+			when 'debian' then 'http://popcon.debian.org/'
 			else raise 'Unknown distro!'
 		end
 		URI.parse(dir) + 'by_vote.gz'
@@ -249,7 +249,7 @@ module DebianPackageScript
 	
 	def self.run
 		case File.basename($0)
-			when 'edebtags': do_edebtags
+			when 'edebtags' then do_edebtags
 			else do_popcon
 		end
 	end
