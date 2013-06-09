@@ -74,6 +74,12 @@ class Popcon
 	def process(io)
 		# Fields: rank name inst vote old recent no_files (maintainer)
 		io.each do |line|
+			# Screw you, invalid unicode sequences
+			if line.respond_to?(:encode)
+				line = line.encode('utf-32', :invalid => :replace)
+				line = line.encode('utf-8')
+			end
+			
 			next if line[0] == ?#	# comments
 			break if line[0] == ?-	# totals
 			fields = line.split(' ', 8)
