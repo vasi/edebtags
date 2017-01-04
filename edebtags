@@ -93,7 +93,7 @@ end
 
 class Debtags
 	include CachedURI
-	def uri; 'http://debtags.debian.net/exports/stable-tags'; end
+	def uri; 'https://debtags.debian.org/exports/stable-tags'; end
 	def process(io)
 		bytag, bypkg = {}, {}
 		io.each do |line|
