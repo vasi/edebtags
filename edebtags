@@ -4,10 +4,17 @@
 
 module CachedURI
 	KeepDays = 30
+	AgeKey = '__AGE__'
 	def name; self.class.name; end
 	
 	def cachedb; File.join(ENV['HOME'], '.' + name); end
-	def age(file); (Time.now - File.mtime(file)) / 86400; end
+
+	def age(db)
+	   return Float::INFINITY unless db.include? AgeKey
+	   require 'time'
+	   cr = Time.parse(db[AgeKey])
+	   return (Time.now - cr) / 86400
+	end
 	
 	def open_handling_gzip(uri, &block)
 		require 'open-uri'
@@ -29,6 +36,7 @@ module CachedURI
 	def fetch
 		@uri ||= uri
 		open_handling_gzip(@uri) { |io| process(io) }
+		@data[AgeKey] = Time.now.to_s
 	end
 	
 	def initialize(opts = {})
@@ -38,16 +46,13 @@ module CachedURI
 		@cachedb ||= cachedb
 		@age ||= KeepDays
 		
-		cache_file = @cachedb + '.db'
-		valid = !@nocache && File.exists?(cache_file) && age(cache_file) < @age
-		if @nocache
-			@data = {}
-		else
+		@data = {}
+		if !@nocache
 			require 'dbm'
-			File.unlink(cache_file) if !valid && File.exists?(cache_file)
-			@data = DBM.open(@cachedb, 0666)
+			@data = DBM.open(@cachedb)
+			@data.clear if age(@data) > @age
 		end
-		fetch unless valid
+		fetch if @data.empty?
 	end
 end
 
