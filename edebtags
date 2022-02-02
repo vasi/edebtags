@@ -1,6 +1,7 @@
 #!/usr/bin/ruby -w
 # Copyright (C) 2008 Dave Vasilevsky <dave@vasilevsky.ca>
 # Licensing: Simplified BSD License, see LICENSE file
+require 'uri'
 
 module CachedURI
 	KeepDays = 30
@@ -18,7 +19,7 @@ module CachedURI
 	
 	def open_handling_gzip(uri, &block)
 		require 'open-uri'
-		open(uri) do |io|
+		URI.open(uri) do |io|
 			return block[io] unless io.respond_to?(:content_type) &&
 				(io.content_type == 'application/x-gzip' ||
 					io.content_encoding.include?('x-gzip'))
