@@ -60,20 +60,9 @@ end
 class Popcon
 	include CachedURI
 	
-	def name; super + '-' + distro; end
-	def distro_detect
-		r = IO.popen('lsb release -is 2>/dev/null') { |f| f.read }
-		$?.success? && r
-	end
-	def distro; @distro ||= (distro_detect || 'debian').downcase; end
-	
 	def uri
 		require 'uri'
-		dir = case distro
-			when 'ubuntu' then 'http://popcon.ubuntu.com/'
-			when 'debian' then 'http://popcon.debian.org/'
-			else raise 'Unknown distro!'
-		end
+		dir = 'http://popcon.debian.org/'
 		URI.parse(dir) + 'by_vote.gz'
 	end
 	
@@ -232,8 +221,6 @@ module DebianPackageScript
 		USAGE
 		pkgs = db_from_opts(Popcon, usage,
 				:db_class => AnnotatedPackage::DB) do |p, o|
-			p.on('-d', '--distro DISTRO',
-				'Use popularity data from this distro') { |x| o[:distro] = x }
 		end
 		pkgs.packages_from_input(ARGV, STDIN).
 				sort_by { |p| -p.popularity }.each do |p|
