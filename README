@@ -45,7 +45,7 @@ You can also annotate and sort any input by popularity:
 
 $ (echo 'mercurial is good'; echo 'git is better') | epopcon
  16149  git is better
-  2678  mercurial is my favourite
+  2678  mercurial is good
 
 $ edebtags web::browser | epopcon | head    # Top web browsers
  34547  iceweasel
