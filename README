@@ -36,9 +36,6 @@ This command lets you access popcon data, on a Debian or non-Debian system. Basi
 $ epopcon evolution                         # Show how many people use evolution
  11222  evolution
 
-$ epopcon --distro ubuntu evolution         # Use Ubuntu's data, not Debian's
- 71306  evolution
-
 $ epopcon cvs git subversion                # Show popularity of each, sorting
  16149  git
  10643  subversion
